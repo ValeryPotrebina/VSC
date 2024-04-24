@@ -1,104 +1,102 @@
 package vcs
 
 import (
-	"fmt"
+	"bytes"
+	"github.com/dgraph-io/badger/v4"
 	"log"
 	"os"
-	"strings"
 )
 
 type Storage struct {
-	Path    string
-	Commits []Commit
+	DB        *badger.DB
+	ROOT_HASH []byte
+	Path      string
+	Commits   []Commit
 }
 
 func InitStorage(path string) Storage {
-	if _, err := os.Open(path); err == os.ErrNotExist {
-		os.Mkdir(path, os.ModePerm)
+	if _, err := os.Open(path); os.IsNotExist(err) {
+		err := os.Mkdir(path, os.ModePerm)
+		if err != nil {
+			log.Panic(err)
+		}
 	}
 
-	return Storage{
+	// Открываем бдшку
+	opt := badger.DefaultOptions(path + "/.fsdb")
+	db, err := badger.Open(opt)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	storage := Storage{
+		db,
+		[]byte{},
 		path,
-		make([]Commit, 0),
+		[]Commit{},
+	}
+
+	rootHash, err := storage.GetData([]byte("ROOT_HASH"))
+	if err == badger.ErrKeyNotFound {
+		log.Println("ROOT_HASH NOT FOUND. INITIALIZING ROOH_HASH...")
+		rootObj := Tree{
+			[]byte("ROOT"),
+			[]byte(""),
+			[][]byte{},
+		}
+		rootObj.CalculateHash()
+		err := storage.SetData(rootObj.Hash, Serialize(&rootObj))
+		if err != nil {
+			log.Panic(err)
+		}
+		//
+		err = storage.SetData([]byte("ROOT_HASH"), rootObj.Hash)
+		if err != nil {
+			log.Panic(err)
+		}
+		storage.ROOT_HASH = rootObj.Hash
+		return storage
+	}
+	log.Printf("ROOT_HASH found: %x", rootHash)
+	storage.ROOT_HASH = rootHash
+	return storage
+}
+
+func (s *Storage) GetData(k []byte) ([]byte, error) {
+	var hash []byte
+	err := s.DB.View(func(txn *badger.Txn) error {
+		item, err := txn.Get(k)
+		if err != nil {
+			return err
+		}
+		err = item.Value(func(val []byte) error {
+			hash = val
+			return nil
+		})
+		return err
+	})
+	return hash, err
+}
+
+func (s *Storage) SetData(k []byte, v []byte) error {
+	err := s.DB.Update(func(txn *badger.Txn) error {
+		err := txn.Set(k, v)
+		return err
+	})
+	return err
+}
+
+func (s *Storage) CloseStorage() {
+	s.DB.Close()
+}
+
+
+func (s *Storage) FindDiffs() {
+	fs := InitFileSystem(s.Path)
+	if !bytes.Equal(fs.ROOT_HASH, s.ROOT_HASH) {
+		log.Println("CHANGES DETECTED")
 	}
 }
 
-// добавление коммитов в хранилище storage
-func (storage *Storage) AddCommit(commit Commit) {
-	storage.Commits = append(storage.Commits, commit)
-}
 
-func (storage *Storage) RestoreByCommits(commits []Commit) {
-	// Почему 0?
-	storage.Commits = make([]Commit, 0)
-	// readDirectory, _ := os.Open(storage.Path)
-	// ??
-	// allFiles, _ := readDirectory.ReadDir(0)
 
-	// for f := range allFiles {
-	// 	file := allFiles[f]
-	// 	fileName := file.Name()
-	// 	filePath := storage.Path + "/" + fileName
-
-	// 	os.Remove(filePath)
-	// 	fmt.Println("Deleted file:", filePath)
-	// }
-
-	for _, c := range commits {
-		storage.AddCommit(c)
-		storage.ApplyCommit(c)
-	}
-
-}
-
-func (storage *Storage) ApplyCommit(commit Commit) {
-	for _, fileChange := range commit.Changes {
-		var b []byte
-		// OpenFile посмотреть 
-		file, err := os.OpenFile(storage.Path + "/" + fileChange.FilePath, 1, os.ModePerm)
-		if err != os.ErrNotExist {
-			file.Read(b)
-		}
-		text := string(b)
-		lines := strings.Split(text, "\n")
-		fmt.Println("Lines: ", lines)
-		remains := make([][]int, 0)
-		for i, r := range fileChange.RemoveInfo {
-			if i == 0 {
-				remains = append(remains, []int{0, r.StartIndex})
-				continue
-			}
-			remains = append(remains, []int{fileChange.RemoveInfo[i-1].EndIndex, r.StartIndex})
-			if i == len(fileChange.RemoveInfo) - 1 {
-				remains = append(remains, []int{r.EndIndex, len(lines)})
-			}
-		}
-		fmt.Println("remains: ", remains)
-		 
-		maped := make([]string, 0)
-		for _, r := range remains {
-			// r хранит индекс начала и конца того, что оставляем от lines
-			fmt.Println(r)
-			maped = append(maped, lines[r[0]:r[1]]...)
-		}
-
-		for _, a := range fileChange.AddInfo {
-			fmt.Println(a)
-			// ??
-			maped = append(append(maped[0:a.StartIndex], strings.Split(string(a.Data), "\n")...), maped[a.StartIndex:]...)
-		}
-
-		result := strings.Join(maped, "\n")
-		file.Write([]byte(result))
-		file.Close()
-		fmt.Println("\"", result, "\"")
-
-		if result == "" {
-			err := os.Remove(storage.Path + "/" + fileChange.FilePath)
-			if err != nil {
-				log.Panic(err)
-			}
-		}
-	}
-
-}

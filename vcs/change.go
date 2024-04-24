@@ -18,3 +18,7 @@ type Commit struct {
 	Timestamp   int64 //change
 	Changes     []FileChange
 }
+
+type DebugChange struct {
+	
+}
