@@ -9,12 +9,14 @@ import (
 )
 
 type Tree struct {
-
 	Id 			[]byte
 	Hash 		[]byte
 	Children 	[][]byte
 }
-
+// Структрура для children 
+// тип ребенка (папка или файл)
+// имя и хэш 
+// Убрать hash из заголовка 
 func (t *Tree) GetHeader() []byte {
 	// rootc1c2c3 
 	return bytes.Join(append([][]byte{t.Id}, t.Children...,), []byte{})

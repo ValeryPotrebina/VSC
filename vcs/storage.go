@@ -2,9 +2,11 @@ package vcs
 
 import (
 	"bytes"
-	"github.com/dgraph-io/badger/v4"
+	"fmt"
 	"log"
 	"os"
+
+	"github.com/dgraph-io/badger/v4"
 )
 
 type Storage struct {
@@ -91,11 +93,17 @@ func (s *Storage) CloseStorage() {
 }
 
 
-func (s *Storage) FindDiffs() {
+func (s *Storage) FindDiffs() []string{
 	fs := InitFileSystem(s.Path)
-	if !bytes.Equal(fs.ROOT_HASH, s.ROOT_HASH) {
-		log.Println("CHANGES DETECTED")
+	fmt.Println(fs.treeMap)
+	if !bytes.Equal(s.ROOT_HASH, fs.ROOT_HASH) {
+		cmp := Comparator {
+			s, 
+			fs,
+		}
+		return cmp.Compare()
 	}
+	return []string{}
 }
 
 

@@ -24,7 +24,7 @@ func InitFileSystem(path string) *FileSystem {
 	return &fs
 }
 
-func (fs *FileSystem) getData(k []byte) *Tree {
+func (fs *FileSystem) GetData(k []byte) *Tree {
 	return fs.treeMap[fmt.Sprintf("%x", k)]
 }
 
